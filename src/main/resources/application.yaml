@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: wds-telegram-bot-lib
+
+telegram:
+  bot:
+    token: 8512562941:AAGiC_NTBJyPOmOzFjtegitRlMam87MEcrY
