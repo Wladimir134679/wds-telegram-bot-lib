@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Bean;
 import org.telegram.telegrambots.client.okhttp.OkHttpTelegramClient;
 import org.telegram.telegrambots.longpolling.TelegramBotsLongPollingApplication;
 import org.telegram.telegrambots.meta.generics.TelegramClient;
+import ru.wds.smp.wdstelegrambotlib.command.ArgumentBinder;
 import ru.wds.smp.wdstelegrambotlib.command.CallbackUpdateHandler;
 import ru.wds.smp.wdstelegrambotlib.command.CommandParser;
 import ru.wds.smp.wdstelegrambotlib.command.CommandRegistry;
@@ -22,9 +23,21 @@ import ru.wds.smp.wdstelegrambotlib.command.callback.CallbackPayloadStore;
 import ru.wds.smp.wdstelegrambotlib.command.callback.InMemoryCallbackPayloadStore;
 import ru.wds.smp.wdstelegrambotlib.command.resolver.CommandArgumentResolver;
 import ru.wds.smp.wdstelegrambotlib.command.resolver.ContextArgumentResolver;
+import ru.wds.smp.wdstelegrambotlib.command.resolver.IdArgumentResolver;
+import ru.wds.smp.wdstelegrambotlib.command.resolver.MediaArgumentResolver;
 import ru.wds.smp.wdstelegrambotlib.command.resolver.ParamArgumentResolver;
 import ru.wds.smp.wdstelegrambotlib.command.resolver.PayloadArgumentResolver;
 import ru.wds.smp.wdstelegrambotlib.command.resolver.TextArgumentResolver;
+import ru.wds.smp.wdstelegrambotlib.dialog.DialogContextArgumentResolver;
+import ru.wds.smp.wdstelegrambotlib.dialog.DialogExecutor;
+import ru.wds.smp.wdstelegrambotlib.dialog.DialogManager;
+import ru.wds.smp.wdstelegrambotlib.dialog.DialogManagerImpl;
+import ru.wds.smp.wdstelegrambotlib.dialog.DialogRegistry;
+import ru.wds.smp.wdstelegrambotlib.dialog.DialogStateStore;
+import ru.wds.smp.wdstelegrambotlib.dialog.DialogUpdateHandler;
+import ru.wds.smp.wdstelegrambotlib.dialog.FallbackUpdateHandler;
+import ru.wds.smp.wdstelegrambotlib.dialog.InMemoryDialogStateStore;
+import ru.wds.smp.wdstelegrambotlib.dialog.NoOpDialogStateStore;
 import ru.wds.smp.wdstelegrambotlib.core.TelegramBotLifecycle;
 import ru.wds.smp.wdstelegrambotlib.core.TelegramBotSender;
 import ru.wds.smp.wdstelegrambotlib.core.TelegramUpdateDispatcher;
@@ -162,14 +175,43 @@ public class TelegramBotAutoConfiguration {
     }
 
     /**
-     * Реестр команд: собирает все {@link CommandArgumentResolver} из контекста и
-     * строит карту команд при старте.
+     * Резолвер идентификаторов {@code @ChatId}/{@code @UserId} — общий для команд,
+     * callback и диалогов.
      */
     @Bean
     @ConditionalOnMissingBean
-    public CommandRegistry commandRegistry(ApplicationContext applicationContext,
-                                           ObjectProvider<CommandArgumentResolver> resolvers) {
-        return new CommandRegistry(applicationContext, resolvers.orderedStream().toList());
+    public IdArgumentResolver idArgumentResolver() {
+        return new IdArgumentResolver();
+    }
+
+    /**
+     * Резолвер вложений сообщения по типу (фото, видео, голос, файлы) — общий для
+     * команд и шагов диалога.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public MediaArgumentResolver mediaArgumentResolver() {
+        return new MediaArgumentResolver();
+    }
+
+    /**
+     * Единый «binder» аргументов: общая точка построения привязок параметров для
+     * команд и диалогов. Собирает все {@link CommandArgumentResolver} из контекста.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ArgumentBinder argumentBinder(ObjectProvider<CommandArgumentResolver> resolvers) {
+        return new ArgumentBinder(resolvers.orderedStream().toList());
+    }
+
+    /**
+     * Реестр команд: строит карту команд при старте, используя общий
+     * {@link ArgumentBinder}.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CommandRegistry commandRegistry(ApplicationContext applicationContext, ArgumentBinder argumentBinder) {
+        return new CommandRegistry(applicationContext, argumentBinder);
     }
 
     /**
@@ -182,15 +224,119 @@ public class TelegramBotAutoConfiguration {
     }
 
     /**
-     * Звено цепочки, маршрутизирующее текстовые команды (приоритет — последний).
+     * Звено цепочки, маршрутизирующее текстовые команды. Зависит от
+     * {@link DialogStateStore} (реального либо no-op), чтобы сбрасывать активный
+     * диалог при совпадении обычной команды.
      */
     @Bean
     @ConditionalOnMissingBean
     public CommandUpdateHandler commandUpdateHandler(CommandRegistry commandRegistry,
                                                      CommandParser commandParser,
                                                      CommandReturnValueHandler commandReturnValueHandler,
-                                                     CallbackPayloadStore callbackPayloadStore) {
-        return new CommandUpdateHandler(commandRegistry, commandParser, commandReturnValueHandler, callbackPayloadStore);
+                                                     CallbackPayloadStore callbackPayloadStore,
+                                                     DialogStateStore dialogStateStore) {
+        return new CommandUpdateHandler(commandRegistry, commandParser, commandReturnValueHandler,
+                callbackPayloadStore, dialogStateStore);
+    }
+
+    // ---------------------------------------------------------------------
+    // Диалоги (пошаговые сценарии с состоянием и TTL)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Резолвер параметров типа {@code DialogContext}. Регистрируется всегда —
+     * безвреден и при выключенных диалогах (в обычных командах вернёт {@code null}).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public DialogContextArgumentResolver dialogContextArgumentResolver() {
+        return new DialogContextArgumentResolver();
+    }
+
+    /**
+     * Хранилище диалоговых сессий в памяти с TTL — когда диалоги включены
+     * ({@code telegram.bot.dialog.enabled=true}). Закрывается при остановке контекста.
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean(DialogStateStore.class)
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true")
+    public DialogStateStore dialogStateStore(TelegramBotProperties properties) {
+        return new InMemoryDialogStateStore(properties.getDialog().getTtl());
+    }
+
+    /**
+     * No-op хранилище диалоговых сессий — когда диалоги выключены (по умолчанию).
+     * Нужно, чтобы {@link CommandUpdateHandler} мог безусловно сбрасывать диалог.
+     */
+    @Bean
+    @ConditionalOnMissingBean(DialogStateStore.class)
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "false", matchIfMissing = true)
+    public DialogStateStore noOpDialogStateStore() {
+        return new NoOpDialogStateStore();
+    }
+
+    /**
+     * Реестр диалогов: сканирует {@code @Dialog}-бины и кэширует шаги через общий
+     * {@link ArgumentBinder}. Создаётся только при включённых диалогах.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true")
+    public DialogRegistry dialogRegistry(ApplicationContext applicationContext, ArgumentBinder argumentBinder) {
+        return new DialogRegistry(applicationContext, argumentBinder);
+    }
+
+    /**
+     * Общее ядро исполнения диалогов (запуск старта/шага, применение исхода).
+     * Используется и звеном маршрутизации, и программным {@link DialogManager}.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true")
+    public DialogExecutor dialogExecutor(DialogRegistry dialogRegistry,
+                                         DialogStateStore dialogStateStore,
+                                         CommandReturnValueHandler commandReturnValueHandler,
+                                         CallbackPayloadStore callbackPayloadStore) {
+        return new DialogExecutor(dialogRegistry, dialogStateStore, commandReturnValueHandler, callbackPayloadStore);
+    }
+
+    /**
+     * Звено цепочки, обслуживающее диалоги (приоритет {@code DIALOG_PROCESSING}).
+     * Только маршрутизация; исполнение делегирует {@link DialogExecutor}. Создаётся
+     * только при включённых диалогах.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true")
+    public DialogUpdateHandler dialogUpdateHandler(DialogRegistry dialogRegistry,
+                                                   DialogStateStore dialogStateStore,
+                                                   DialogExecutor dialogExecutor) {
+        return new DialogUpdateHandler(dialogRegistry, dialogStateStore, dialogExecutor);
+    }
+
+    /**
+     * Программное управление диалогами ({@link DialogManager}) — позволяет обычной
+     * команде запустить диалог. Создаётся только при включённых диалогах.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true")
+    public DialogManager dialogManager(DialogRegistry dialogRegistry,
+                                       DialogStateStore dialogStateStore,
+                                       DialogExecutor dialogExecutor) {
+        return new DialogManagerImpl(dialogRegistry, dialogStateStore, dialogExecutor);
+    }
+
+    /**
+     * Заглушка для необработанных сообщений. Создаётся только при заданном непустом
+     * {@code telegram.bot.fallback.message}.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "telegram.bot.fallback", name = "message")
+    public FallbackUpdateHandler fallbackUpdateHandler(TelegramBotProperties properties) {
+        return new FallbackUpdateHandler(properties.getFallback().getMessage(),
+                properties.getFallback().isPrivateOnly());
     }
 
     // ---------------------------------------------------------------------

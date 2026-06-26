@@ -3,15 +3,11 @@ package ru.wds.smp.wdstelegrambotlib.command;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.context.ApplicationContext;
-import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import org.springframework.util.ClassUtils;
 import ru.wds.smp.wdstelegrambotlib.command.annotation.BotController;
 import ru.wds.smp.wdstelegrambotlib.command.annotation.CommandMapping;
-import ru.wds.smp.wdstelegrambotlib.command.resolver.CommandArgumentResolver;
 
 import java.lang.reflect.Method;
-import java.lang.reflect.Parameter;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -37,14 +33,12 @@ import java.util.Map;
 public class CommandRegistry implements SmartInitializingSingleton {
 
     private final ApplicationContext applicationContext;
-    private final List<CommandArgumentResolver> resolvers;
+    private final ArgumentBinder argumentBinder;
     private final Map<CommandKey, CommandDefinition> commands = new HashMap<>();
 
-    public CommandRegistry(ApplicationContext applicationContext, List<CommandArgumentResolver> resolvers) {
+    public CommandRegistry(ApplicationContext applicationContext, ArgumentBinder argumentBinder) {
         this.applicationContext = applicationContext;
-        List<CommandArgumentResolver> sorted = new ArrayList<>(resolvers);
-        AnnotationAwareOrderComparator.sort(sorted);
-        this.resolvers = List.copyOf(sorted);
+        this.argumentBinder = argumentBinder;
     }
 
     @Override
@@ -90,7 +84,7 @@ public class CommandRegistry implements SmartInitializingSingleton {
         if (mapping.value().length == 0) {
             throw new IllegalStateException("@CommandMapping без имён команд на методе " + method);
         }
-        List<ParameterBinding> bindings = buildBindings(method);
+        List<ParameterBinding> bindings = argumentBinder.bind(method);
 
         for (String rawName : mapping.value()) {
             String name = normalize(rawName);
@@ -106,28 +100,6 @@ public class CommandRegistry implements SmartInitializingSingleton {
             }
             commands.put(key, new CommandDefinition(bean, method, bindings, name, mapping.type()));
         }
-    }
-
-    private List<ParameterBinding> buildBindings(Method method) {
-        Parameter[] parameters = method.getParameters();
-        List<ParameterBinding> bindings = new ArrayList<>(parameters.length);
-        for (Parameter parameter : parameters) {
-            CommandArgumentResolver resolver = findResolver(parameter, method);
-            bindings.add(new ParameterBinding(parameter, resolver));
-        }
-        return bindings;
-    }
-
-    private CommandArgumentResolver findResolver(Parameter parameter, Method method) {
-        for (CommandArgumentResolver resolver : resolvers) {
-            if (resolver.supports(parameter)) {
-                return resolver;
-            }
-        }
-        throw new IllegalStateException("Не найден резолвер для параметра типа "
-                + parameter.getType().getName() + " в методе команды " + method
-                + ". Используйте @Text (хвост текста), @Param(\"имя\")/@Payload(\"имя\") (callback) "
-                + "или поддерживаемый контекстный тип.");
     }
 
     private String normalize(String rawName) {

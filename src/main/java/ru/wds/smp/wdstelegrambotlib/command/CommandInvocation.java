@@ -11,6 +11,7 @@ import org.telegram.telegrambots.meta.api.objects.message.Message;
 import ru.wds.smp.wdstelegrambotlib.command.callback.Callback;
 import ru.wds.smp.wdstelegrambotlib.command.callback.CallbackPayloadStore;
 import ru.wds.smp.wdstelegrambotlib.core.TelegramBotSender;
+import ru.wds.smp.wdstelegrambotlib.dialog.DialogContext;
 
 /**
  * Контекст одного вызова команды: всё, что нужно резолверам аргументов и
@@ -62,6 +63,13 @@ public class CommandInvocation {
     private final CallbackPayloadStore payloadStore;
 
     /**
+     * Контекст диалога (для вызовов методов {@code @DialogStart}/{@code @DialogStep});
+     * {@code null} для обычных команд и callback. Резолвится в параметры типа
+     * {@link DialogContext}.
+     */
+    private final DialogContext dialogContext;
+
+    /**
      * Сохраняет «большие» данные в хранилище и возвращает короткую ссылку, которую
      * можно положить в кнопку как параметр ({@code .arg("name", ref)}) и прочитать в
      * callback через {@code @Payload("name")}.
@@ -99,6 +107,40 @@ public class CommandInvocation {
                 .chatId(chat != null ? chat.getId() : null)
                 .messageId(message.getMessageId())
                 .payloadStore(store)
+                .build();
+    }
+
+    /**
+     * Собирает контекст для вызова шага диалога из апдейта-сообщения.
+     *
+     * <p>В отличие от {@link #fromMessage}, {@code command} здесь синтетический: его
+     * {@code rawArguments} равны всему тексту сообщения, поэтому {@code @Text String}
+     * в шаге получает ввод пользователя целиком (а не «хвост после имени команды»).
+     * Дополнительно проставляется {@link #dialogContext}.</p>
+     *
+     * @param update        апдейт-сообщение
+     * @param sender        абстракция отправки
+     * @param command       синтетическая команда с текстом сообщения как аргументами
+     * @param store         хранилище «больших» данных
+     * @param dialogContext контекст диалога текущего пользователя
+     * @return контекст вызова шага
+     */
+    public static CommandInvocation fromDialog(Update update, TelegramBotSender sender,
+                                               ParsedCommand command, CallbackPayloadStore store,
+                                               DialogContext dialogContext) {
+        Message message = update.getMessage();
+        Chat chat = message.getChat();
+        return CommandInvocation.builder()
+                .update(update)
+                .message(message)
+                .chat(chat)
+                .user(message.getFrom())
+                .sender(sender)
+                .command(command)
+                .chatId(chat != null ? chat.getId() : null)
+                .messageId(message.getMessageId())
+                .payloadStore(store)
+                .dialogContext(dialogContext)
                 .build();
     }
 

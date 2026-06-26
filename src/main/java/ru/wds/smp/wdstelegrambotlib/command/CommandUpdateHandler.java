@@ -3,9 +3,13 @@ package ru.wds.smp.wdstelegrambotlib.command;
 import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.User;
+import org.telegram.telegrambots.meta.api.objects.chat.Chat;
 import org.telegram.telegrambots.meta.api.objects.message.Message;
 import ru.wds.smp.wdstelegrambotlib.command.callback.CallbackPayloadStore;
 import ru.wds.smp.wdstelegrambotlib.core.TelegramBotSender;
+import ru.wds.smp.wdstelegrambotlib.dialog.DialogKey;
+import ru.wds.smp.wdstelegrambotlib.dialog.DialogStateStore;
 import ru.wds.smp.wdstelegrambotlib.handler.HandlerPriority;
 import ru.wds.smp.wdstelegrambotlib.handler.UpdateHandler;
 
@@ -14,8 +18,9 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * Звено цепочки, выполняющее маршрутизацию текстовых команд — финальный этап
- * обработки апдейта (приоритет {@link HandlerPriority#COMMAND_PROCESSING}).
+ * Звено цепочки, выполняющее маршрутизацию текстовых команд
+ * (приоритет {@link HandlerPriority#COMMAND_PROCESSING}). Выполняется перед слоем
+ * диалогов и заглушкой — совпавшая команда «побеждает» их и прерывает цепочку.
  *
  * <p>Сопоставление в два шага:</p>
  * <ol>
@@ -25,8 +30,17 @@ import java.util.Optional;
  *       команды, остаток как {@code @Text}.</li>
  * </ol>
  *
- * <p>Не прерывает цепочку. Ошибки аргументов ({@link CommandArgumentException})
- * обрабатываются мягко.</p>
+ * <p><b>Прерывание цепочки.</b> Если команда совпала и была вызвана, звено
+ * возвращает {@code false} — апдейт считается обработанным и дальше (в слой
+ * диалогов и заглушку) не передаётся. Если команда не найдена — возвращает
+ * {@code true}, пропуская апдейт следующим звеньям. Ошибки аргументов
+ * ({@link CommandArgumentException}) обрабатываются мягко, но команда всё равно
+ * считается обработанной.</p>
+ *
+ * <p><b>Взаимодействие с диалогами.</b> Совпавшая обычная команда «побеждает»
+ * активный диалог пользователя: его состояние сбрасывается через
+ * {@link DialogStateStore}. Когда слой диалогов выключен, в контексте — no-op стор,
+ * поэтому сброс безвреден.</p>
  */
 @Slf4j
 public class CommandUpdateHandler implements UpdateHandler {
@@ -35,14 +49,17 @@ public class CommandUpdateHandler implements UpdateHandler {
     private final CommandParser parser;
     private final CommandReturnValueHandler returnValueHandler;
     private final CallbackPayloadStore payloadStore;
+    private final DialogStateStore dialogStore;
 
     public CommandUpdateHandler(CommandRegistry registry, CommandParser parser,
                                 CommandReturnValueHandler returnValueHandler,
-                                CallbackPayloadStore payloadStore) {
+                                CallbackPayloadStore payloadStore,
+                                DialogStateStore dialogStore) {
         this.registry = registry;
         this.parser = parser;
         this.returnValueHandler = returnValueHandler;
         this.payloadStore = payloadStore;
+        this.dialogStore = dialogStore;
     }
 
     @Override
@@ -77,6 +94,9 @@ public class CommandUpdateHandler implements UpdateHandler {
             }
         }
 
+        // Обычная команда совпала — она «побеждает» активный диалог пользователя.
+        clearDialog(message);
+
         CommandInvocation invocation = CommandInvocation.fromMessage(update, sender, parsed, payloadStore);
         try {
             Object result = definition.invoke(invocation);
@@ -89,8 +109,22 @@ public class CommandUpdateHandler implements UpdateHandler {
                         .text("⚠️ " + e.getMessage())
                         .build());
             }
+        } catch (Exception e) {
+            // Команда совпала, но её код упал: апдейт уже «поглощён» — логируем и не
+            // пробрасываем ошибку дальше (в диалоги/заглушку).
+            log.error("Команда '{}' завершилась с ошибкой", parsed.name(), e);
         }
-        return true;
+        // Команда обработана — апдейт не передаём дальше (в диалоги/заглушку).
+        return false;
+    }
+
+    /** Сбрасывает активный диалог пользователя, приславшего команду (если он есть). */
+    private void clearDialog(Message message) {
+        Chat chat = message.getChat();
+        User from = message.getFrom();
+        if (chat != null && chat.getId() != null && from != null && from.getId() != null) {
+            dialogStore.remove(new DialogKey(chat.getId(), from.getId()));
+        }
     }
 
     @Override

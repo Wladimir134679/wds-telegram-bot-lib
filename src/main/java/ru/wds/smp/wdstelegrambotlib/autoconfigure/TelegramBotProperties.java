@@ -55,6 +55,18 @@ public class TelegramBotProperties {
     private Callback callback = new Callback();
 
     /**
+     * Настройки слоя диалогов (пошаговые сценарии с состоянием и TTL).
+     */
+    @NestedConfigurationProperty
+    private Dialog dialog = new Dialog();
+
+    /**
+     * Настройки заглушки для необработанных сообщений.
+     */
+    @NestedConfigurationProperty
+    private Fallback fallback = new Fallback();
+
+    /**
      * Настройки работы с callback (inline-кнопки и серверное хранилище данных).
      */
     @Getter
@@ -67,6 +79,51 @@ public class TelegramBotProperties {
          * По умолчанию — 10 минут.
          */
         private Duration payloadTtl = Duration.ofMinutes(10);
+    }
+
+    /**
+     * Настройки слоя диалогов (пошаговые сценарии «как форма-визард»).
+     */
+    @Getter
+    @Setter
+    public static class Dialog {
+
+        /**
+         * Включён ли слой диалогов. По умолчанию {@code false}: фича опциональна,
+         * и без неё в контексте используется no-op хранилище состояний
+         * ({@link ru.wds.smp.wdstelegrambotlib.dialog.NoOpDialogStateStore}), а
+         * звено {@link ru.wds.smp.wdstelegrambotlib.dialog.DialogUpdateHandler} не
+         * создаётся.
+         */
+        private boolean enabled = false;
+
+        /**
+         * Время жизни простаивающей диалоговой сессии. По истечении состояние
+         * вычищается фоново, и пользователь снова считается «вне диалога». Должно
+         * быть положительным. По умолчанию — 5 минут.
+         */
+        private Duration ttl = Duration.ofMinutes(5);
+    }
+
+    /**
+     * Настройки заглушки для сообщений, которые не подхватили ни команда, ни диалог.
+     */
+    @Getter
+    @Setter
+    public static class Fallback {
+
+        /**
+         * Текст ответа на необработанное сообщение. Если пусто/не задано — заглушка
+         * выключена (бин {@link ru.wds.smp.wdstelegrambotlib.dialog.FallbackUpdateHandler}
+         * не создаётся). По умолчанию — не задан.
+         */
+        private String message;
+
+        /**
+         * Отвечать только в личных чатах. В группах бот может получать все сообщения,
+         * поэтому по умолчанию {@code true}, чтобы не спамить участников.
+         */
+        private boolean privateOnly = true;
     }
 
     /**
