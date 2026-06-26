@@ -1,5 +1,8 @@
 package ru.wds.smp.wdstelegrambotlib.dialog;
 
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -28,13 +31,15 @@ class DialogContextImpl implements DialogContext {
 
     private final DialogKey key;
     private final DialogState state;
+    private final Integer effectiveMessageId;
 
     private Outcome outcome = Outcome.STAY;
     private String nextStep;
 
-    DialogContextImpl(DialogKey key, DialogState state) {
+    DialogContextImpl(DialogKey key, DialogState state, Integer effectiveMessageId) {
         this.key = key;
         this.state = state;
+        this.effectiveMessageId = effectiveMessageId;
     }
 
     @Override
@@ -55,6 +60,30 @@ class DialogContextImpl implements DialogContext {
     @Override
     public long userId() {
         return key.userId();
+    }
+
+    @Override
+    public Integer messageId() {
+        return effectiveMessageId;
+    }
+
+    @Override
+    public EditMessageText edit(String text, InlineKeyboardMarkup keyboard) {
+        if (effectiveMessageId == null) {
+            throw new IllegalStateException("Нечего редактировать: у диалога нет «якорного» сообщения "
+                    + "(сначала отправьте сообщение с клавиатурой из @DialogStart)");
+        }
+        return EditMessageText.builder()
+                .chatId(key.chatId())
+                .messageId(effectiveMessageId)
+                .text(text)
+                .replyMarkup(keyboard)
+                .build();
+    }
+
+    @Override
+    public EditMessageText edit(String text) {
+        return edit(text, null);
     }
 
     @Override

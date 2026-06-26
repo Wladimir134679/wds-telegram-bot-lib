@@ -28,6 +28,7 @@ import ru.wds.smp.wdstelegrambotlib.command.resolver.MediaArgumentResolver;
 import ru.wds.smp.wdstelegrambotlib.command.resolver.ParamArgumentResolver;
 import ru.wds.smp.wdstelegrambotlib.command.resolver.PayloadArgumentResolver;
 import ru.wds.smp.wdstelegrambotlib.command.resolver.TextArgumentResolver;
+import ru.wds.smp.wdstelegrambotlib.dialog.DialogCallbackHandler;
 import ru.wds.smp.wdstelegrambotlib.dialog.DialogContextArgumentResolver;
 import ru.wds.smp.wdstelegrambotlib.dialog.DialogExecutor;
 import ru.wds.smp.wdstelegrambotlib.dialog.DialogManager;
@@ -312,6 +313,20 @@ public class TelegramBotAutoConfiguration {
                                                    DialogStateStore dialogStateStore,
                                                    DialogExecutor dialogExecutor) {
         return new DialogUpdateHandler(dialogRegistry, dialogStateStore, dialogExecutor);
+    }
+
+    /**
+     * Звено цепочки, направляющее нажатия inline-кнопок в активный диалог
+     * ({@code @DialogCallback}). Приоритет — раньше глобальных callback-команд.
+     * Создаётся только при включённых диалогах.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true")
+    public DialogCallbackHandler dialogCallbackHandler(CallbackCodec callbackCodec,
+                                                       DialogStateStore dialogStateStore,
+                                                       DialogExecutor dialogExecutor) {
+        return new DialogCallbackHandler(callbackCodec, dialogStateStore, dialogExecutor);
     }
 
     /**

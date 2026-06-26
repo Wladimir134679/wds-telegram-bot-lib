@@ -28,6 +28,7 @@ public class DialogState {
     private final Map<String, Object> data = new ConcurrentHashMap<>();
     private final Deque<String> history = new ArrayDeque<>();
     private volatile String currentStep;
+    private volatile Integer anchorMessageId;
 
     DialogState(String dialogName) {
         this.dialogName = dialogName;
@@ -36,6 +37,18 @@ public class DialogState {
     /** @return имя (ключ) запущенного диалога */
     public String dialogName() {
         return dialogName;
+    }
+
+    /**
+     * @return id «якорного» сообщения — последнего сообщения диалога с клавиатурой,
+     *         которое редактируется при навигации; {@code null}, если ещё не отправлено
+     */
+    Integer anchorMessageId() {
+        return anchorMessageId;
+    }
+
+    void setAnchorMessageId(Integer anchorMessageId) {
+        this.anchorMessageId = anchorMessageId;
     }
 
     /** @return текущий шаг автомата либо {@code null}, если шаг ещё не назначен */

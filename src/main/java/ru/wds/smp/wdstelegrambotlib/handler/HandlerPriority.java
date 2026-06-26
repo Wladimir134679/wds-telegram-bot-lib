@@ -34,6 +34,13 @@ public final class HandlerPriority {
     /** Системные callback (например, «закрыть клавиатуру») — раньше обычной маршрутизации. */
     public static final int SYSTEM_CALLBACK = 900;
 
+    /**
+     * Callback'и активного диалога ({@code @DialogCallback}) — проверяются раньше
+     * глобальных callback-команд. Если действие не относится к диалогу, управление
+     * уходит дальше (к {@link #COMMAND_PROCESSING}).
+     */
+    public static final int DIALOG_CALLBACK = 950;
+
     /** Маршрутизация и вызов команд. Совпавшая команда прерывает цепочку. */
     public static final int COMMAND_PROCESSING = 1000;
 

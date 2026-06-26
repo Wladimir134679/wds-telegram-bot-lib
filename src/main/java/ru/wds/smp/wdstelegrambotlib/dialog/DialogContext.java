@@ -1,5 +1,8 @@
 package ru.wds.smp.wdstelegrambotlib.dialog;
 
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -43,6 +46,38 @@ public interface DialogContext {
 
     /** @return идентификатор пользователя */
     long userId();
+
+    /**
+     * Идентификатор «активного» сообщения для редактирования: для callback-обработчика
+     * это сообщение, на котором нажата кнопка; для текстового шага — «якорное»
+     * сообщение диалога (последнее отправленное меню/клавиатура).
+     *
+     * @return id сообщения либо {@code null}, если диалог ещё не отправлял сообщений
+     */
+    Integer messageId();
+
+    /**
+     * Готовит {@link EditMessageText} для редактирования «якорного» сообщения диалога
+     * (см. {@link #messageId()}): подставляет {@code chatId} и {@code messageId}, чтобы
+     * не дублировать это в каждом обработчике. Удобно для навигации по меню в одном
+     * сообщении.
+     *
+     * @param text     новый текст сообщения
+     * @param keyboard новая inline-клавиатура; {@code null} — не менять разметку
+     *                 (клавиатура остаётся прежней), пустая разметка
+     *                 ({@code Keyboards.inline().build()}) — убрать клавиатуру
+     * @return метод редактирования, который можно вернуть из обработчика
+     * @throws IllegalStateException если редактировать нечего ({@link #messageId()} == null)
+     */
+    EditMessageText edit(String text, InlineKeyboardMarkup keyboard);
+
+    /**
+     * Сокращение {@link #edit(String, InlineKeyboardMarkup)} без изменения клавиатуры.
+     *
+     * @param text новый текст
+     * @return метод редактирования
+     */
+    EditMessageText edit(String text);
 
     /**
      * Кладёт значение в контекст диалога под ключом.

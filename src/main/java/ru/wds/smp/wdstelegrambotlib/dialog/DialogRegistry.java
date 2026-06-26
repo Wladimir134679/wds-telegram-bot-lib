@@ -7,6 +7,7 @@ import org.springframework.util.ClassUtils;
 import ru.wds.smp.wdstelegrambotlib.command.ArgumentBinder;
 import ru.wds.smp.wdstelegrambotlib.command.ParameterBinding;
 import ru.wds.smp.wdstelegrambotlib.dialog.annotation.Dialog;
+import ru.wds.smp.wdstelegrambotlib.dialog.annotation.DialogCallback;
 import ru.wds.smp.wdstelegrambotlib.dialog.annotation.DialogStart;
 import ru.wds.smp.wdstelegrambotlib.dialog.annotation.DialogStep;
 
@@ -92,13 +93,16 @@ public class DialogRegistry implements SmartInitializingSingleton {
 
         DialogStepDefinition start = null;
         Map<String, DialogStepDefinition> steps = new HashMap<>();
+        Map<String, DialogStepDefinition> callbacks = new HashMap<>();
 
         for (Method method : userClass.getDeclaredMethods()) {
             DialogStart startAnn = method.getAnnotation(DialogStart.class);
             DialogStep stepAnn = method.getAnnotation(DialogStep.class);
-            if (startAnn != null && stepAnn != null) {
+            DialogCallback callbackAnn = method.getAnnotation(DialogCallback.class);
+            int marks = (startAnn != null ? 1 : 0) + (stepAnn != null ? 1 : 0) + (callbackAnn != null ? 1 : 0);
+            if (marks > 1) {
                 throw new IllegalStateException("Метод " + method
-                        + " помечен и @DialogStart, и @DialogStep одновременно");
+                        + " помечен несколькими из @DialogStart/@DialogStep/@DialogCallback одновременно");
             }
             if (startAnn != null) {
                 if (start != null) {
@@ -108,6 +112,8 @@ public class DialogRegistry implements SmartInitializingSingleton {
                 start = new DialogStepDefinition(bean, method, argumentBinder.bind(method), name, null);
             } else if (stepAnn != null) {
                 registerSteps(bean, method, stepAnn, name, steps);
+            } else if (callbackAnn != null) {
+                registerCallbacks(bean, method, callbackAnn, name, callbacks);
             }
         }
 
@@ -116,7 +122,7 @@ public class DialogRegistry implements SmartInitializingSingleton {
                     + ") нет метода @DialogStart");
         }
 
-        DialogDefinition definition = new DialogDefinition(name, triggers, start, steps);
+        DialogDefinition definition = new DialogDefinition(name, triggers, start, steps, callbacks);
         if (byName.putIfAbsent(name, definition) != null) {
             throw new IllegalStateException("Конфликт диалогов: ключ '" + name + "' уже занят");
         }
@@ -145,6 +151,26 @@ public class DialogRegistry implements SmartInitializingSingleton {
             if (existing != null) {
                 throw new IllegalStateException("Конфликт шагов в диалоге '" + dialogName
                         + "': шаг '" + step + "' объявлен на " + existing.getMethod() + " и " + method);
+            }
+        }
+    }
+
+    private void registerCallbacks(Object bean, Method method, DialogCallback callbackAnn, String dialogName,
+                                   Map<String, DialogStepDefinition> callbacks) {
+        if (callbackAnn.value().length == 0) {
+            throw new IllegalStateException("@DialogCallback без имени действия на методе " + method);
+        }
+        List<ParameterBinding> bindings = argumentBinder.bind(method);
+        for (String rawAction : callbackAnn.value()) {
+            String action = rawAction.strip();
+            if (action.isEmpty()) {
+                throw new IllegalStateException("Пустое имя действия в @DialogCallback на методе " + method);
+            }
+            DialogStepDefinition existing = callbacks.putIfAbsent(action,
+                    new DialogStepDefinition(bean, method, bindings, dialogName, action));
+            if (existing != null) {
+                throw new IllegalStateException("Конфликт callback в диалоге '" + dialogName
+                        + "': действие '" + action + "' объявлено на " + existing.getMethod() + " и " + method);
             }
         }
     }
