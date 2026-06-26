@@ -6,10 +6,25 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.telegram.telegrambots.client.okhttp.OkHttpTelegramClient;
 import org.telegram.telegrambots.longpolling.TelegramBotsLongPollingApplication;
 import org.telegram.telegrambots.meta.generics.TelegramClient;
+import ru.wds.smp.wdstelegrambotlib.command.CallbackUpdateHandler;
+import ru.wds.smp.wdstelegrambotlib.command.CommandParser;
+import ru.wds.smp.wdstelegrambotlib.command.CommandRegistry;
+import ru.wds.smp.wdstelegrambotlib.command.CommandReturnValueHandler;
+import ru.wds.smp.wdstelegrambotlib.command.CommandUpdateHandler;
+import ru.wds.smp.wdstelegrambotlib.command.SystemCallbackHandler;
+import ru.wds.smp.wdstelegrambotlib.command.callback.CallbackCodec;
+import ru.wds.smp.wdstelegrambotlib.command.callback.CallbackPayloadStore;
+import ru.wds.smp.wdstelegrambotlib.command.callback.InMemoryCallbackPayloadStore;
+import ru.wds.smp.wdstelegrambotlib.command.resolver.CommandArgumentResolver;
+import ru.wds.smp.wdstelegrambotlib.command.resolver.ContextArgumentResolver;
+import ru.wds.smp.wdstelegrambotlib.command.resolver.ParamArgumentResolver;
+import ru.wds.smp.wdstelegrambotlib.command.resolver.PayloadArgumentResolver;
+import ru.wds.smp.wdstelegrambotlib.command.resolver.TextArgumentResolver;
 import ru.wds.smp.wdstelegrambotlib.core.TelegramBotLifecycle;
 import ru.wds.smp.wdstelegrambotlib.core.TelegramBotSender;
 import ru.wds.smp.wdstelegrambotlib.core.TelegramUpdateDispatcher;
@@ -103,5 +118,132 @@ public class TelegramBotAutoConfiguration {
     @ConditionalOnMissingBean
     public LoggingUpdateHandler loggingUpdateHandler() {
         return new LoggingUpdateHandler();
+    }
+
+    // ---------------------------------------------------------------------
+    // Маршрутизация команд (MVC-подобный слой)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Парсер текста сообщения в команду; знает username бота для отрезания
+     * суффикса {@code @имя_бота}.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CommandParser commandParser(TelegramBotProperties properties) {
+        return new CommandParser(properties.getUsername());
+    }
+
+    /**
+     * Резолвер «хвоста» текстовой команды {@code @Text}.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public TextArgumentResolver textArgumentResolver() {
+        return new TextArgumentResolver();
+    }
+
+    /**
+     * Резолвер именованных параметров callback {@code @Param}.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ParamArgumentResolver paramArgumentResolver() {
+        return new ParamArgumentResolver();
+    }
+
+    /**
+     * Резолвер контекстных параметров по типу (Update, Message, Chat, User и т.д.).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ContextArgumentResolver contextArgumentResolver() {
+        return new ContextArgumentResolver();
+    }
+
+    /**
+     * Реестр команд: собирает все {@link CommandArgumentResolver} из контекста и
+     * строит карту команд при старте.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CommandRegistry commandRegistry(ApplicationContext applicationContext,
+                                           ObjectProvider<CommandArgumentResolver> resolvers) {
+        return new CommandRegistry(applicationContext, resolvers.orderedStream().toList());
+    }
+
+    /**
+     * Обработчик возвращаемого значения метода-команды (текст, {@code BotApiMethod} и т.п.).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CommandReturnValueHandler commandReturnValueHandler() {
+        return new CommandReturnValueHandler();
+    }
+
+    /**
+     * Звено цепочки, маршрутизирующее текстовые команды (приоритет — последний).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CommandUpdateHandler commandUpdateHandler(CommandRegistry commandRegistry,
+                                                     CommandParser commandParser,
+                                                     CommandReturnValueHandler commandReturnValueHandler,
+                                                     CallbackPayloadStore callbackPayloadStore) {
+        return new CommandUpdateHandler(commandRegistry, commandParser, commandReturnValueHandler, callbackPayloadStore);
+    }
+
+    // ---------------------------------------------------------------------
+    // Callback-кнопки и хранилище «больших» данных
+    // ---------------------------------------------------------------------
+
+    /**
+     * Внутренний кодек {@code callback_data} (лимит 64 байта). Используется
+     * билдерами клавиатур и хендлерами callback.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CallbackCodec callbackCodec() {
+        return new CallbackCodec();
+    }
+
+    /**
+     * Хранилище «больших» данных для callback-кнопок с TTL-очисткой. Закрывается
+     * при остановке контекста (фоновый поток очистки).
+     */
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean
+    public CallbackPayloadStore callbackPayloadStore(TelegramBotProperties properties) {
+        return new InMemoryCallbackPayloadStore(properties.getCallback().getPayloadTtl());
+    }
+
+    /**
+     * Резолвер параметров {@code @Payload} — достаёт «большие» данные из хранилища.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public PayloadArgumentResolver payloadArgumentResolver(CallbackPayloadStore callbackPayloadStore) {
+        return new PayloadArgumentResolver(callbackPayloadStore);
+    }
+
+    /**
+     * Предобрабатывающее звено для системных callback (например, {@code Callback.close()}).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public SystemCallbackHandler systemCallbackHandler(CallbackCodec callbackCodec) {
+        return new SystemCallbackHandler(callbackCodec);
+    }
+
+    /**
+     * Звено цепочки, маршрутизирующее нажатия inline-кнопок (callback-команды).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public CallbackUpdateHandler callbackUpdateHandler(CommandRegistry commandRegistry,
+                                                       CallbackCodec callbackCodec,
+                                                       CommandReturnValueHandler commandReturnValueHandler,
+                                                       CallbackPayloadStore callbackPayloadStore) {
+        return new CallbackUpdateHandler(commandRegistry, callbackCodec, commandReturnValueHandler, callbackPayloadStore);
     }
 }

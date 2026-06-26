@@ -3,6 +3,9 @@ package ru.wds.smp.wdstelegrambotlib.autoconfigure;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.NestedConfigurationProperty;
+
+import java.time.Duration;
 
 /**
  * Свойства конфигурации Telegram-бота (префикс {@code telegram.bot}).
@@ -44,6 +47,27 @@ public class TelegramBotProperties {
      * Логирует на уровне DEBUG, без текста сообщений и PII. По умолчанию — включён.
      */
     private boolean logUpdates = true;
+
+    /**
+     * Настройки callback-кнопок и хранилища «больших» данных.
+     */
+    @NestedConfigurationProperty
+    private Callback callback = new Callback();
+
+    /**
+     * Настройки работы с callback (inline-кнопки и серверное хранилище данных).
+     */
+    @Getter
+    @Setter
+    public static class Callback {
+
+        /**
+         * Время жизни записей в {@link ru.wds.smp.wdstelegrambotlib.command.callback.CallbackPayloadStore}.
+         * По истечении данные вычищаются фоново. Должно быть положительным.
+         * По умолчанию — 10 минут.
+         */
+        private Duration payloadTtl = Duration.ofMinutes(10);
+    }
 
     /**
      * Возвращает безопасную для логов маску токена: показывает несколько первых

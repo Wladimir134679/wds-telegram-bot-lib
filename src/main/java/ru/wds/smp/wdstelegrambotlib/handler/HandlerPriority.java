@@ -31,6 +31,9 @@ public final class HandlerPriority {
     /** Предобработка апдейта, обогащение будущего контекста. */
     public static final int PRE_PROCESSING = 500;
 
+    /** Системные callback (например, «закрыть клавиатуру») — раньше обычной маршрутизации. */
+    public static final int SYSTEM_CALLBACK = 900;
+
     /** Маршрутизация и вызов команд — обычно последнее звено цепочки. */
     public static final int COMMAND_PROCESSING = 1000;
 
