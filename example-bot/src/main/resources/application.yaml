@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: example-bot
+
+telegram:
+  bot:
+    # Токен берётся из переменной окружения — НЕ коммить реальный токен в репозиторий.
+    # Запуск: TELEGRAM_BOT_TOKEN=123:ABC ./gradlew :example-bot:bootRun
+    token: ${TELEGRAM_BOT_TOKEN:}
+    # Username бота без ведущего @ (нужен, чтобы отрезать суффикс @имя_бота
+    # у команд в группах). Необязателен.
+    username: ${TELEGRAM_BOT_USERNAME:}
+    # Встроенный обработчик-логгер входящих апдейтов (DEBUG, без текста и PII).
+    log-updates: true
+    callback:
+      # Время жизни «больших» данных, сохранённых через ctx.save(...) для callback.
+      payload-ttl: 10m
+
+logging:
+  level:
+    ru.wds.smp: DEBUG
