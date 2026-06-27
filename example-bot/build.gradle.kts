@@ -21,17 +21,11 @@ repositories {
 dependencies {
     // Сама библиотека (корневой проект). Через неё подключается авто-конфигурация
     // стартера (META-INF/spring/...imports) — никакого ручного @ComponentScan по
-    // пакетам библиотеки не нужно.
+    // пакетам библиотеки не нужно. Типы Telegram Bot API библиотека экспортирует
+    // транзитивно (api), поэтому отдельно их объявлять НЕ требуется.
     implementation(project(":"))
 
     implementation("org.springframework.boot:spring-boot-starter")
-
-    // Типы Telegram Bot API (Update, SendMessage, InlineKeyboardMarkup и т.д.)
-    // торчат в публичных сигнатурах методов-команд, поэтому объявляем их и здесь:
-    // в библиотеке они подключены как implementation и не «протекают» на
-    // компиляцию потребителя.
-    implementation("org.telegram:telegrambots-longpolling:10.0.0")
-    implementation("org.telegram:telegrambots-client:10.0.0")
 
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")

@@ -66,32 +66,42 @@
 
 ---
 
-## Подключение
+## Публикация в локальный репозиторий
 
-Координаты артефакта: `ru.wds.smp:wds-telegram-bot-lib:0.0.1-SNAPSHOT`.
+Библиотека собирается обычным (не `bootJar`) jar-артефактом и публикуется плагином
+`maven-publish`. Координаты артефакта:
 
-Библиотека собирается обычным (не `bootJar`) артефактом, поэтому подключается как
-любая зависимость. Пока артефакт не опубликован в публичный репозиторий, есть
-несколько способов:
-
-**A. Подпроект в одной сборке Gradle** (как в `example-bot`):
-
-```kotlin
-// settings.gradle.kts потребителя
-include("my-bot")
-
-// build.gradle.kts модуля my-bot
-dependencies {
-    implementation(project(":")) // или project(":wds-telegram-bot-lib")
-}
+```
+ru.wds.smp:wds-telegram-bot-lib:0.0.1-SNAPSHOT
 ```
 
-**B. Через локальный Maven-репозиторий.** Разработчик библиотеки публикует её к
-себе (`publishToMavenLocal`), потребитель подключает:
+Чтобы положить артефакт в локальный Maven-репозиторий (`~/.m2/repository`), откуда
+его подхватит `mavenLocal()` любого потребителя на той же машине:
+
+```bash
+./gradlew publishToMavenLocal
+```
+
+Публикуются три артефакта: основной `jar`, `-sources.jar` и `-javadoc.jar` (чтобы в
+IDE потребителя работали навигация по коду и подсказки документации).
+
+> Это **библиотека**, а не приложение: `bootJar` отключён, основным артефактом
+> оставлен обычный `jar` — так потребитель видит классы и
+> `META-INF/spring/...imports` напрямую.
+
+Команды сборки/публикации выполняет разработчик на своей стороне (см. `CLAUDE.md`,
+раздел 0).
+
+---
+
+## Подключение
+
+После публикации в локальный репозиторий подключите библиотеку как обычную
+зависимость:
 
 ```kotlin
 repositories {
-    mavenLocal()
+    mavenLocal()   // локальный ~/.m2, куда положил publishToMavenLocal
     mavenCentral()
 }
 
@@ -100,17 +110,23 @@ dependencies {
 }
 ```
 
-> ⚠️ Типы Telegram Bot API (`Update`, `SendMessage`, `InlineKeyboardMarkup` и т.д.)
-> присутствуют в публичных сигнатурах методов-команд. В библиотеке они подключены
-> как `implementation` и **не «протекают»** на компиляцию потребителя, поэтому в
-> своём проекте объяви их явно:
->
-> ```kotlin
-> dependencies {
->     implementation("org.telegram:telegrambots-longpolling:10.0.0")
->     implementation("org.telegram:telegrambots-client:10.0.0")
-> }
-> ```
+Типы Telegram Bot API (`Update`, `SendMessage`, `InlineKeyboardMarkup` и т.д.)
+присутствуют в публичных сигнатурах методов-команд и аннотаций библиотеки, поэтому
+подключены как `api` и **экспортируются потребителю транзитивно** — отдельно
+объявлять `telegrambots-longpolling`/`telegrambots-client` **не нужно**.
+
+**Альтернатива — подпроект в одной сборке Gradle** (как в `example-bot`), без
+публикации:
+
+```kotlin
+// settings.gradle.kts потребителя
+include("my-bot")
+
+// build.gradle.kts модуля my-bot
+dependencies {
+    implementation(project(":wds-telegram-bot-lib"))
+}
+```
 
 Авто-конфигурация подхватывается автоматически через
 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`
@@ -145,8 +161,8 @@ telegram:
       payload-ttl: 10m           # Duration, по умолчанию 10 минут
 
     dialog:
-      # Включить слой диалогов (пошаговые сценарии с состоянием).
-      enabled: false             # по умолчанию false (фича опциональна)
+      # Слой диалогов (пошаговые сценарии с состоянием).
+      enabled: true              # по умолчанию true (работает «из коробки»)
       # Сколько живёт простаивающая диалоговая сессия до сброса.
       ttl: 5m                    # Duration, по умолчанию 5 минут
 
@@ -166,7 +182,7 @@ telegram:
 | `telegram.bot.username` | `String` | пусто | Username без `@`. Нужен для отрезания суффикса `@имя_бота` у команд в группах. |
 | `telegram.bot.log-updates` | `boolean` | `true` | Включает встроенный `LoggingUpdateHandler` (DEBUG, без PII). |
 | `telegram.bot.callback.payload-ttl` | `Duration` | `10m` | TTL «больших» данных callback. Должен быть положительным. |
-| `telegram.bot.dialog.enabled` | `boolean` | `false` | Включает слой диалогов. При `false` — no-op хранилище состояний. |
+| `telegram.bot.dialog.enabled` | `boolean` | `true` | Слой диалогов. Включён по умолчанию; при `false` — no-op хранилище состояний. |
 | `telegram.bot.dialog.ttl` | `Duration` | `5m` | TTL простаивающей диалоговой сессии. Должен быть положительным. |
 | `telegram.bot.fallback.message` | `String` | пусто | Текст заглушки. Пусто = заглушка выключена. |
 | `telegram.bot.fallback.private-only` | `boolean` | `true` | Отвечать заглушкой только в личных чатах. |
@@ -445,8 +461,9 @@ public class AntiFloodHandler implements UpdateHandler {
 последующие сообщения попадают в текущий шаг. Состояние хранится между шагами в
 пределах TTL, без внешнего хранилища.
 
-**Включается флагом** `telegram.bot.dialog.enabled: true` (по умолчанию выключено;
-при выключенном слое используется no-op хранилище и звено диалогов не создаётся).
+**Включён по умолчанию** (`telegram.bot.dialog.enabled: true`). Чтобы отключить
+слой, явно задайте `telegram.bot.dialog.enabled: false` — тогда используется no-op
+хранилище и звено диалогов не создаётся.
 
 ```java
 @Dialog({"calc", "🧮 Калькулятор"})   // триггеры; первое имя — ключ диалога

@@ -89,13 +89,15 @@ public class TelegramBotProperties {
     public static class Dialog {
 
         /**
-         * Включён ли слой диалогов. По умолчанию {@code false}: фича опциональна,
-         * и без неё в контексте используется no-op хранилище состояний
+         * Включён ли слой диалогов. По умолчанию {@code true}: диалоги работают
+         * «из коробки». Чтобы отключить фичу, явно задайте
+         * {@code telegram.bot.dialog.enabled=false} — тогда в контексте используется
+         * no-op хранилище состояний
          * ({@link ru.wds.smp.wdstelegrambotlib.dialog.NoOpDialogStateStore}), а
          * звено {@link ru.wds.smp.wdstelegrambotlib.dialog.DialogUpdateHandler} не
          * создаётся.
          */
-        private boolean enabled = false;
+        private boolean enabled = true;
 
         /**
          * Время жизни простаивающей диалоговой сессии. По истечении состояние

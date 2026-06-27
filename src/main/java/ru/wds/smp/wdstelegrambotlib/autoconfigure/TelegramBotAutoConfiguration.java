@@ -256,22 +256,24 @@ public class TelegramBotAutoConfiguration {
 
     /**
      * Хранилище диалоговых сессий в памяти с TTL — когда диалоги включены
-     * ({@code telegram.bot.dialog.enabled=true}). Закрывается при остановке контекста.
+     * ({@code telegram.bot.dialog.enabled=true}, по умолчанию). Закрывается при
+     * остановке контекста.
      */
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean(DialogStateStore.class)
-    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true", matchIfMissing = true)
     public DialogStateStore dialogStateStore(TelegramBotProperties properties) {
         return new InMemoryDialogStateStore(properties.getDialog().getTtl());
     }
 
     /**
-     * No-op хранилище диалоговых сессий — когда диалоги выключены (по умолчанию).
-     * Нужно, чтобы {@link CommandUpdateHandler} мог безусловно сбрасывать диалог.
+     * No-op хранилище диалоговых сессий — когда диалоги явно выключены
+     * ({@code telegram.bot.dialog.enabled=false}). Нужно, чтобы
+     * {@link CommandUpdateHandler} мог безусловно сбрасывать диалог.
      */
     @Bean
     @ConditionalOnMissingBean(DialogStateStore.class)
-    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "false", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "false")
     public DialogStateStore noOpDialogStateStore() {
         return new NoOpDialogStateStore();
     }
@@ -282,7 +284,7 @@ public class TelegramBotAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true", matchIfMissing = true)
     public DialogRegistry dialogRegistry(ApplicationContext applicationContext, ArgumentBinder argumentBinder) {
         return new DialogRegistry(applicationContext, argumentBinder);
     }
@@ -293,7 +295,7 @@ public class TelegramBotAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true", matchIfMissing = true)
     public DialogExecutor dialogExecutor(DialogRegistry dialogRegistry,
                                          DialogStateStore dialogStateStore,
                                          CommandReturnValueHandler commandReturnValueHandler,
@@ -308,7 +310,7 @@ public class TelegramBotAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true", matchIfMissing = true)
     public DialogUpdateHandler dialogUpdateHandler(DialogRegistry dialogRegistry,
                                                    DialogStateStore dialogStateStore,
                                                    DialogExecutor dialogExecutor) {
@@ -322,7 +324,7 @@ public class TelegramBotAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true", matchIfMissing = true)
     public DialogCallbackHandler dialogCallbackHandler(CallbackCodec callbackCodec,
                                                        DialogStateStore dialogStateStore,
                                                        DialogExecutor dialogExecutor) {
@@ -335,7 +337,7 @@ public class TelegramBotAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = "telegram.bot.dialog", name = "enabled", havingValue = "true", matchIfMissing = true)
     public DialogManager dialogManager(DialogRegistry dialogRegistry,
                                        DialogStateStore dialogStateStore,
                                        DialogExecutor dialogExecutor) {
