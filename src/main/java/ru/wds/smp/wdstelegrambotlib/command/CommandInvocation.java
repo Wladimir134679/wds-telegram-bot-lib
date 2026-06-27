@@ -148,8 +148,8 @@ public class CommandInvocation {
      * Собирает контекст для callback-команды из апдейта с {@code callback_query}.
      *
      * <p>Сообщение-источник может быть «недоступным» ({@code InaccessibleMessage}),
-     * тогда {@link #getMessage()} равно {@code null}, но {@link #getChatId()} и
-     * {@link #getMessageId()} всё равно вычисляются.</p>
+     * тогда {@code getMessage()} равно {@code null}, но {@code getChatId()} и
+     * {@code getMessageId()} всё равно вычисляются.</p>
      *
      * @param update   апдейт, у которого {@code hasCallbackQuery()} истинно
      * @param sender   абстракция отправки
