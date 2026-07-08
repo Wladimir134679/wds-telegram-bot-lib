@@ -9,6 +9,7 @@ import ru.wds.smp.wdstelegrambotlib.handler.UpdateHandler;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
 
 /**
  * Диспетчер входящих апдейтов — точка приёма обновлений от Telegram.
@@ -36,19 +37,39 @@ public class TelegramUpdateDispatcher implements LongPollingSingleThreadUpdateCo
 
     private final TelegramBotSender sender;
     private final List<UpdateHandler> handlers;
+    private final ExecutorService executorService;
+    private final StripedLock stripedLock;
 
     /**
-     * @param sender   абстракция отправки, передаётся в каждый обработчик
-     * @param handlers звенья цепочки; список копируется и сортируется внутри —
-     *                 исходная коллекция не мутируется
+     * Конструктор для обратной совместимости (последовательная обработка в текущем потоке).
+     *
+     * @param sender   абстракция отправки
+     * @param handlers обработчики апдейтов
      */
     public TelegramUpdateDispatcher(TelegramBotSender sender, List<UpdateHandler> handlers) {
+        this(sender, handlers, null, null);
+    }
+
+    /**
+     * Конструктор с поддержкой асинхронного выполнения и сохранения порядка по chatId.
+     *
+     * @param sender           абстракция отправки, передаётся в каждый обработчик
+     * @param handlers         звенья цепочки; список копируется и сортируется внутри
+     * @param executorService  пул потоков для асинхронного выполнения (если null, выполняется синхронно)
+     * @param stripedLock      пул блокировок по chatId (если null, блокировка не применяется)
+     */
+    public TelegramUpdateDispatcher(TelegramBotSender sender,
+                                    List<UpdateHandler> handlers,
+                                    ExecutorService executorService,
+                                    StripedLock stripedLock) {
         this.sender = Objects.requireNonNull(sender, "sender не должен быть null");
+        this.executorService = executorService;
+        this.stripedLock = stripedLock;
         List<UpdateHandler> copy = new ArrayList<>(Objects.requireNonNull(handlers, "handlers не должен быть null"));
         AnnotationAwareOrderComparator.sort(copy);
         this.handlers = List.copyOf(copy);
-        log.info("Цепочка обработки апдейтов собрана: {} обработчик(ов): {}",
-                this.handlers.size(), handlerNames());
+        log.info("Цепочка обработки апдейтов собрана: {} обработчик(ов): {}. Асинхронный режим: {}",
+                this.handlers.size(), handlerNames(), executorService != null ? "ВКЛЮЧЕН" : "ВЫКЛЮЧЕН");
     }
 
     /**
@@ -61,6 +82,23 @@ public class TelegramUpdateDispatcher implements LongPollingSingleThreadUpdateCo
         if (log.isDebugEnabled()) {
             log.debug("Получен апдейт updateId={}", update.getUpdateId());
         }
+        if (executorService != null && stripedLock != null) {
+            Long chatId = extractChatId(update);
+            executorService.submit(() -> {
+                java.util.concurrent.locks.Lock lock = stripedLock.get(chatId);
+                lock.lock();
+                try {
+                    dispatchToHandlers(update);
+                } finally {
+                    lock.unlock();
+                }
+            });
+        } else {
+            dispatchToHandlers(update);
+        }
+    }
+
+    private void dispatchToHandlers(Update update) {
         for (UpdateHandler handler : handlers) {
             try {
                 boolean keepGoing = handler.handle(sender, update);
@@ -77,6 +115,61 @@ public class TelegramUpdateDispatcher implements LongPollingSingleThreadUpdateCo
                         handler.getClass().getSimpleName(), update.getUpdateId(), e);
             }
         }
+    }
+
+    /**
+     * Вспомогательный метод для извлечения chatId из различных типов апдейтов.
+     * Позволяет определить ключ партиционирования для сохранения порядка обработки.
+     */
+    private Long extractChatId(Update update) {
+        if (update == null) {
+            return 0L;
+        }
+        if (update.getMessage() != null) {
+            return update.getMessage().getChatId();
+        }
+        if (update.getCallbackQuery() != null) {
+            if (update.getCallbackQuery().getMessage() != null) {
+                return update.getCallbackQuery().getMessage().getChatId();
+            }
+            if (update.getCallbackQuery().getFrom() != null) {
+                return update.getCallbackQuery().getFrom().getId();
+            }
+        }
+        if (update.getEditedMessage() != null) {
+            return update.getEditedMessage().getChatId();
+        }
+        if (update.getChannelPost() != null) {
+            return update.getChannelPost().getChatId();
+        }
+        if (update.getEditedChannelPost() != null) {
+            return update.getEditedChannelPost().getChatId();
+        }
+        if (update.getInlineQuery() != null && update.getInlineQuery().getFrom() != null) {
+            return update.getInlineQuery().getFrom().getId();
+        }
+        if (update.getChosenInlineQuery() != null && update.getChosenInlineQuery().getFrom() != null) {
+            return update.getChosenInlineQuery().getFrom().getId();
+        }
+        if (update.getShippingQuery() != null && update.getShippingQuery().getFrom() != null) {
+            return update.getShippingQuery().getFrom().getId();
+        }
+        if (update.getPreCheckoutQuery() != null && update.getPreCheckoutQuery().getFrom() != null) {
+            return update.getPreCheckoutQuery().getFrom().getId();
+        }
+        if (update.getPollAnswer() != null && update.getPollAnswer().getUser() != null) {
+            return update.getPollAnswer().getUser().getId();
+        }
+        if (update.getMyChatMember() != null && update.getMyChatMember().getChat() != null) {
+            return update.getMyChatMember().getChat().getId();
+        }
+        if (update.getChatMember() != null && update.getChatMember().getChat() != null) {
+            return update.getChatMember().getChat().getId();
+        }
+        if (update.getChatJoinRequest() != null && update.getChatJoinRequest().getChat() != null) {
+            return update.getChatJoinRequest().getChat().getId();
+        }
+        return 0L;
     }
 
     private String handlerNames() {

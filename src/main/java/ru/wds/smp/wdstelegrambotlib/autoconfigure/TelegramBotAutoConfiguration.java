@@ -42,10 +42,14 @@ import ru.wds.smp.wdstelegrambotlib.dialog.NoOpDialogStateStore;
 import ru.wds.smp.wdstelegrambotlib.core.TelegramBotLifecycle;
 import ru.wds.smp.wdstelegrambotlib.core.TelegramBotSender;
 import ru.wds.smp.wdstelegrambotlib.core.TelegramUpdateDispatcher;
+import ru.wds.smp.wdstelegrambotlib.core.StripedLock;
+import ru.wds.smp.wdstelegrambotlib.core.TelegramHttpInterceptor;
 import ru.wds.smp.wdstelegrambotlib.handler.LoggingUpdateHandler;
 import ru.wds.smp.wdstelegrambotlib.handler.UpdateHandler;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Авто-конфигурация библиотеки Telegram-бота — настоящий Spring Boot starter.
@@ -71,13 +75,40 @@ import java.util.List;
 public class TelegramBotAutoConfiguration {
 
     /**
-     * Клиент Telegram API для исходящих вызовов. Создаётся фабрикой по токену —
-     * отдельный бин, чтобы его можно было подменить (в т.ч. на мок в тестах).
+     * Пул виртуальных потоков (Virtual Threads из Java 21) для параллельной обработки апдейтов.
+     * Создается только если включено свойство telegram.bot.async.enabled.
+     */
+    @Bean(name = "telegramUpdateExecutor")
+    @ConditionalOnProperty(prefix = "telegram.bot.async", name = "enabled", havingValue = "true")
+    @ConditionalOnMissingBean(name = "telegramUpdateExecutor")
+    public ExecutorService telegramUpdateExecutor() {
+        return Executors.newVirtualThreadPerTaskExecutor();
+    }
+
+    /**
+     * OkHttpClient, настроенный с перехватчиком для контроля лимитов запросов и автоматического
+     * повтора при ошибке 429 (Too Many Requests).
      */
     @Bean
     @ConditionalOnMissingBean
-    public TelegramClient telegramClient(TelegramBotProperties properties) {
-        return new OkHttpTelegramClient(properties.getToken());
+    public okhttp3.OkHttpClient telegramOkHttpClient(TelegramBotProperties properties) {
+        TelegramBotProperties.Http httpProperties = properties.getHttp();
+        return new okhttp3.OkHttpClient.Builder()
+                .addInterceptor(new TelegramHttpInterceptor(
+                        httpProperties.getMaxRetries(),
+                        httpProperties.getRetryBuffer().toMillis(),
+                        httpProperties.getRateLimit()
+                ))
+                .build();
+    }
+
+    /**
+     * Клиент Telegram API для исходящих вызовов. Создаётся фабрикой по токену на основе OkHttpClient.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public TelegramClient telegramClient(okhttp3.OkHttpClient okHttpClient, TelegramBotProperties properties) {
+        return new OkHttpTelegramClient(okHttpClient, properties.getToken());
     }
 
     /**
@@ -92,13 +123,26 @@ public class TelegramBotAutoConfiguration {
     /**
      * Диспетчер входящих апдейтов: собирает все бины {@link UpdateHandler} из
      * контекста в цепочку (в порядке {@code @Order}/{@link UpdateHandler#getOrder()}).
+     * Если включена асинхронность, конфигурирует пул потоков и StripedLock.
      */
     @Bean
     @ConditionalOnMissingBean
     public TelegramUpdateDispatcher telegramUpdateDispatcher(TelegramBotSender sender,
-                                                             ObjectProvider<UpdateHandler> handlers) {
+                                                             ObjectProvider<UpdateHandler> handlers,
+                                                             @org.springframework.beans.factory.annotation.Qualifier("telegramUpdateExecutor") ObjectProvider<ExecutorService> executorServiceProvider,
+                                                             TelegramBotProperties properties) {
         List<UpdateHandler> ordered = handlers.orderedStream().toList();
-        return new TelegramUpdateDispatcher(sender, ordered);
+        ExecutorService executorService = null;
+        StripedLock stripedLock = null;
+
+        if (properties.getAsync().isEnabled()) {
+            executorService = executorServiceProvider.getIfAvailable();
+            if (executorService != null) {
+                stripedLock = new StripedLock(properties.getAsync().getStripes());
+            }
+        }
+
+        return new TelegramUpdateDispatcher(sender, ordered, executorService, stripedLock);
     }
 
     /**

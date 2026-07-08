@@ -67,6 +67,18 @@ public class TelegramBotProperties {
     private Fallback fallback = new Fallback();
 
     /**
+     * Настройки асинхронной обработки входящих сообщений.
+     */
+    @NestedConfigurationProperty
+    private Async async = new Async();
+
+    /**
+     * Настройки HTTP-клиента (повторы при ошибках, ограничения скорости).
+     */
+    @NestedConfigurationProperty
+    private Http http = new Http();
+
+    /**
      * Настройки работы с callback (inline-кнопки и серверное хранилище данных).
      */
     @Getter
@@ -126,6 +138,54 @@ public class TelegramBotProperties {
          * поэтому по умолчанию {@code true}, чтобы не спамить участников.
          */
         private boolean privateOnly = true;
+    }
+
+    /**
+     * Настройки асинхронной обработки входящих сообщений.
+     */
+    @Getter
+    @Setter
+    public static class Async {
+
+        /**
+         * Включить ли параллельную обработку входящих сообщений.
+         * По умолчанию — false (для обратной совместимости).
+         */
+        private boolean enabled = false;
+
+        /**
+         * Размер пула блокировок для сохранения порядка обработки сообщений одного чата.
+         * Должно быть положительным числом (желательно степенью двойки).
+         * По умолчанию — 256.
+         */
+        private int stripes = 256;
+    }
+
+    /**
+     * Настройки HTTP-клиента (ограничения, повторы при 429 и т.д.).
+     */
+    @Getter
+    @Setter
+    public static class Http {
+
+        /**
+         * Максимальное число попыток выполнения запроса при ошибке 429 (Too Many Requests).
+         * По умолчанию — 3.
+         */
+        private int maxRetries = 3;
+
+        /**
+         * Дополнительное время ожидания (буфер) к retry_after, возвращаемому Telegram.
+         * По умолчанию — 500 миллисекунд.
+         */
+        private Duration retryBuffer = Duration.ofMillis(500);
+
+        /**
+         * Глобальное ограничение количества исходящих запросов в секунду.
+         * Рекомендованное Telegram значение — 30. Если 0 или меньше — лимитирование отключено.
+         * По умолчанию — 30.
+         */
+        private int rateLimit = 30;
     }
 
     /**
