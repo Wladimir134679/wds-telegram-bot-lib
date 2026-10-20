@@ -7,6 +7,7 @@ import org.telegram.telegrambots.longpolling.TelegramBotsLongPollingApplication;
 import ru.wds.smp.wdstelegrambotlib.core.TelegramBotSender;
 import ru.wds.smp.wdstelegrambotlib.dialog.DialogStateStore;
 import ru.wds.smp.wdstelegrambotlib.dialog.DialogUpdateHandler;
+import ru.wds.smp.wdstelegrambotlib.dialog.FallbackUpdateHandler;
 import ru.wds.smp.wdstelegrambotlib.dialog.InMemoryDialogStateStore;
 import ru.wds.smp.wdstelegrambotlib.dialog.NoOpDialogStateStore;
 
@@ -33,6 +34,28 @@ class TelegramBotAutoConfigurationTests {
     void inertWithoutToken() {
         // Без telegram.bot.token авто-конфигурация выключена целиком.
         runner.run(context -> assertThat(context).doesNotHaveBean(TelegramBotSender.class));
+    }
+
+    @Test
+    void inertWithBlankToken() {
+        // token: ${TELEGRAM_BOT_TOKEN:} без переменной окружения даёт пустую строку —
+        // это тоже «токена нет», бот не должен стартовать.
+        runner.withPropertyValues("telegram.bot.token=")
+                .run(context -> assertThat(context).doesNotHaveBean(TelegramBotSender.class));
+        runner.withPropertyValues("telegram.bot.token=   ")
+                .run(context -> assertThat(context).doesNotHaveBean(TelegramBotSender.class));
+    }
+
+    @Test
+    void fallbackDisabledWithBlankMessage() {
+        runner.withPropertyValues("telegram.bot.token=123:ABC", "telegram.bot.fallback.message=")
+                .run(context -> assertThat(context).doesNotHaveBean(FallbackUpdateHandler.class));
+    }
+
+    @Test
+    void fallbackEnabledWithMessage() {
+        runner.withPropertyValues("telegram.bot.token=123:ABC", "telegram.bot.fallback.message=Не понял")
+                .run(context -> assertThat(context).hasSingleBean(FallbackUpdateHandler.class));
     }
 
     @Test

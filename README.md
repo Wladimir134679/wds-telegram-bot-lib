@@ -132,8 +132,10 @@ dependencies {
 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`
 — **никакого ручного `@ComponentScan` по пакетам библиотеки не нужно.**
 
-**Активация.** Библиотека инертна, пока не задан `telegram.bot.token`: без токена
-не создаётся ни один бин (см. `@ConditionalOnProperty` на авто-конфигурации).
+**Активация.** Библиотека инертна, пока не задан непустой `telegram.bot.token`:
+без токена — в том числе при пустом значении, как у `${TELEGRAM_BOT_TOKEN:}` без
+переменной окружения — не создаётся ни один бин (см. `@ConditionalOnNonBlankProperty`
+на авто-конфигурации).
 
 ---
 

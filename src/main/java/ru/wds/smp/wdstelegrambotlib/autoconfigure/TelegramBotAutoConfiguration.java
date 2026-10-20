@@ -61,8 +61,9 @@ import java.util.concurrent.Executors;
  * них своей реализацией.</p>
  *
  * <p><b>Активация.</b> Конфигурация подключается только при наличии классов
- * транспорта на classpath и заданном свойстве {@code telegram.bot.token}. Без
- * токена библиотека инертна — ни один бин не создаётся.</p>
+ * транспорта на classpath и непустом свойстве {@code telegram.bot.token}. Без
+ * токена (или при пустом, например {@code ${TELEGRAM_BOT_TOKEN:}} без переменной
+ * окружения) библиотека инертна — ни один бин не создаётся.</p>
  *
  * <p>Регистрируется через
  * {@code META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports},
@@ -70,7 +71,7 @@ import java.util.concurrent.Executors;
  */
 @AutoConfiguration
 @ConditionalOnClass({TelegramBotsLongPollingApplication.class, TelegramClient.class})
-@ConditionalOnProperty(prefix = "telegram.bot", name = "token")
+@ConditionalOnNonBlankProperty("telegram.bot.token")
 @EnableConfigurationProperties(TelegramBotProperties.class)
 public class TelegramBotAutoConfiguration {
 
@@ -394,7 +395,7 @@ public class TelegramBotAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "telegram.bot.fallback", name = "message")
+    @ConditionalOnNonBlankProperty("telegram.bot.fallback.message")
     public FallbackUpdateHandler fallbackUpdateHandler(TelegramBotProperties properties) {
         return new FallbackUpdateHandler(properties.getFallback().getMessage(),
                 properties.getFallback().isPrivateOnly());
